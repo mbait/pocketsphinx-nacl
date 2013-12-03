@@ -9,40 +9,16 @@
 
 static FILE *stream;
 
-static void
-print_word_times(int32 start)
-{
-  E_ERROR("not implemented\n");
-}
-
 static int32
 cont_read(ad_rec_t *ad_rec, int16 * buf, int32 max)
 {
   size_t nread = fread(buf, sizeof *buf, max, stream);
-  E_INFO("%d\n", nread);
   return nread > 0 ? nread : -1;
 }
 
 int
 pepper_main(int argc, char **argv)
 {
-  /*
-  if (umount("/")) {
-    perror("failed to unmount root fs");
-    exit(EXIT_FAILURE);
-  }
-
-  if (mount("", "/", "memfs", 0, NULL)) {
-    perror("failed to mount memfs");
-    exit(EXIT_FAILURE);
-  }
-
-  if (mkdir("/model")) {
-    perror("failed to create `models'");
-    exit(EXIT_FAILURE);
-  }
-  */
-
   if (mount("http://localhost:8000/model", "/model", "httpfs", 0, NULL)) {
     perror("failed to mount models directory");
     exit(EXIT_FAILURE);
@@ -53,21 +29,6 @@ pepper_main(int argc, char **argv)
   cmd_ln_set_str_r(config, "-dict", "/model/lm/en_US/cmu07a.dic");
   cmd_ln_set_str_r(config, "-lm",   "/model/lm/en_US/hub4.5000.DMP");
   ps_decoder_t *ps = ps_init(config);
-
-  /*
-  int16 *buf = (int16 *) malloc(1024);
-  size_t nread;
-
-  ps_start_utt(decoder, NULL);
-  while ((nread = fread(buf, sizeof *buf, sizeof buf, stream)) > 0)
-    ps_process_raw(decoder, buf, nread, FALSE, FALSE);
-  ps_end_utt(decoder);
-
-  int32 score;
-  const char *uttid;
-  fprintf(stderr, "%s\n", ps_get_hyp(decoder, &score, &uttid));
-  free(buf);
-  */
 
   if (NULL == (stream = fopen("/model/goforward.raw", "r"))) {
     perror("failed to open audio file");
@@ -86,6 +47,7 @@ pepper_main(int argc, char **argv)
 
   if (cont_ad_calib(cont) < 0)
     E_INFO("Using default voice activity detection\n");
+  rewind(stream);
 
   int32 start = -1;
   int16 adbuf[4096];
@@ -93,14 +55,10 @@ pepper_main(int argc, char **argv)
   const char *uttid;
   for (;;) {
     int32 k = cont_ad_read(cont, adbuf, sizeof adbuf / sizeof *adbuf);
-    E_INFO("%d\n", k);
     if (k < 0) {            /* End of input audio file; end the utt and exit */
       if (start > 0) {
         ps_end_utt(ps);
-        if (cmd_ln_boolean_r(config, "-time"))
-          print_word_times(start);
-        else
-          fprintf(stderr, "%s\n", ps_get_hyp(ps, NULL, &uttid));
+        printf("%s\n", ps_get_hyp(ps, NULL, &uttid));
       }
 
       break;
@@ -110,10 +68,7 @@ pepper_main(int argc, char **argv)
       if (start >= 0) {   /* Currently in an utterance */
         if (cont->seglen > endsil) {    /* Long enough silence detected; end the utterance */
           ps_end_utt(ps);
-          if (cmd_ln_boolean_r(config, "-time"))
-            print_word_times(start);
-          else
-            fprintf(stderr, "%s\n", ps_get_hyp(ps, NULL, &uttid));
+          printf("%s\n", ps_get_hyp(ps, NULL, &uttid));
           start = -1;
         }
         else {
@@ -131,14 +86,12 @@ pepper_main(int argc, char **argv)
     }
   }
 
-  E_INFO("finished\n");
-
-	for (;;) {
-		PSEvent *event;
-		while ((event = PSEventTryAcquire())) {
-			PSEventRelease(event);
-		}
-	}
+    for (;;) {
+        PSEvent *event;
+        while ((event = PSEventTryAcquire())) {
+            PSEventRelease(event);
+        }
+    }
 
   return EXIT_SUCCESS;
 }
